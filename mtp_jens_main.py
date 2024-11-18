@@ -15,7 +15,7 @@ import websocket
 import threading
 
 # overrided definitions
-IP='192.168.0.116'
+IP='192.168.0.116'      # Eve
 PORT=9559
 robot = ALProxy("ALTextToSpeech", IP, PORT)
 Nao.InitProxy(IP)
@@ -83,7 +83,7 @@ def clip(velocity):
 
 def check_target_orientation(pepper, target):
     # Calculate position vector and target angle
-    direction_to_target = [target[u'position'][0] - pepper[u'position'][0], 0, target[u'position'][2] - pepper[u'position'][2]]
+    direction_to_target = [target[0] - pepper[u'position'][0], 0, target[2] - pepper[u'position'][2]]
     target_angle = math.atan2(direction_to_target[2], direction_to_target[0])
 
     turn_rate = target_angle - pepper[u'orientation'][1]
@@ -96,11 +96,13 @@ def check_target_orientation(pepper, target):
     return turn_rate/(math.pi)
         
 def check_target_distance(pepper, target):
-    return math.sqrt( (pepper[u'position'][0] - target[u'position'][0])**2 + (pepper[u'position'][2] - target[u'position'][2])**2 )
+    return math.sqrt( (pepper[u'position'][0] - target[0])**2 + (pepper[u'position'][2] - target[2])**2 )
     
 
 def pepper_to_target(target):
     global live_data
+
+    sleep_time = 0.3
     velocity = 0
     turn_rate = 0
 
@@ -110,26 +112,31 @@ def pepper_to_target(target):
         #print(live_data)
         if live_data!={}:
             pepper_data = live_data[u'Pepper']
-            target_data = live_data[target]
+            target_data = [0,0,0]
             turn_rate = check_target_orientation(pepper_data, target_data)
             if np.abs(turn_rate) > 0.1:
-                print("Turn rate: ", turn_rate)
-##                time.sleep(0.5)
+                time.sleep(sleep_time)
             else:
                 done_turning = True
                 turn_rate = 0
-
+                
+##        print("Turn rate: " + str(turn_rate))
         Nao.Move(velocity,0,turn_rate)
     
     print('driving')
     done_moving = False
+    dist = 0
     while not done_moving:
         if live_data!={}:
             pepper_data = live_data[u'Pepper']
-            target_data = live_data[target]
+            target_data = [0, 0, 0]
+            dist = check_target_distance(pepper_data, target_data)
             if check_target_distance(pepper_data, target_data) > 0:
-                print("Distance: ", check_target_distance(pepper_data, target_data))
-                velocity = 0.3 * check_target_distance(pepper_data, target_data)
+                print("Distance: " +  str(dist))
+                velocity = 0.3 * dist
+                if velocity < 0.5:
+                    velocity = 0.5
+                time.sleep(sleep_time)
             else:
                 done_moving = True
                 velocity = 0
@@ -155,6 +162,8 @@ if __name__ == "__main__":
     
     Nao.InitPose()
 ##    file_path = "C:/Users/20183464/OneDrive - TU Eindhoven/School/Master Thesis/Scripts/Experiment Robot assisted cleanup 2_scripts_14-07-2023/scripts/objects_data.json"
+
+    # Turn off autonomous life features 
     amp=Nao.naoqi.ALProxy('ALAutonomousMoves',IP,PORT)
     alp=Nao.naoqi.ALProxy('ALAutonomousLife',IP,PORT)
     alp.setAutonomousAbilityEnabled('BasicAwareness', False)
@@ -185,5 +194,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Exiting script.")
     finally:
-        Nao.Crouch()
         ws.close()
+        Nao.Crouch()
+        

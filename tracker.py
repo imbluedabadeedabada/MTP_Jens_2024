@@ -16,7 +16,7 @@ current_orientation = None
 current_frame = None
 is_running = False
 streaming_client = None
-ws_server = WebsocketServer(port=8000, host='localhost')
+ws_server = None
 data = {}
 
 
@@ -26,6 +26,7 @@ def on_new_client(client, server):
 
 def start_new_server():
     global ws_server
+    ws_server = WebsocketServer(port=8000, host='localhost')
     ws_server.set_fn_new_client(on_new_client)
     ws_server.serve_forever()
 
@@ -36,26 +37,11 @@ def receive_new_frame(data_dict):
     global current_frame, file_name 
     order_list=[ "frameNumber", "markerSetCount", "unlabeledMarkersCount", "rigidBodyCount", "skeletonCount",
                 "labeledMarkerCount", "timecode", "timecodeSub", "timestamp", "isRecording", "trackedModelsChanged" ]
-    dump_args = False
-    if dump_args == True:
-        out_string = "    "
-        for key in data_dict:
-            out_string += key + "="
-            if key in data_dict :
-                out_string += data_dict[key] + " "
-            out_string+="/"
-        #print(data_dict.keys())
-        print(out_string)
     current_frame = data_dict
-    #if is_recording:
-    #    the_time = time.time() - start_time
-    #     file = open(file_name+'_frame_','a')
-    #    file.write(str(the_time)+'\t'+str(position[0])+'\t'+str(position[1])+'\t'+str(position[2])+'\t'+str(rotation[0])+'\t'+str(rotation[1])+'\t'+str(rotation[2])+'\n')
-    #     file.close()
-    pass        
+           
 # This is a callback function that gets connected to the NatNet client. It is called once per rigid body per frame
 def receive_rigid_body_frame(new_id, position, rotation):
-    global current_position, current_orientation, start_time, file, is_running, data
+    global current_position, current_orientation, is_running, data
     current_position = position
     current_orientation = rotation
 
@@ -63,69 +49,20 @@ def receive_rigid_body_frame(new_id, position, rotation):
         body = 'Glove'
     elif new_id == 5:
         body = 'Pepper'
-        print("Orientation Pepper: ", current_orientation)
+        # print("Orientation Pepper: ", current_orientation)
+        # print("data: ", data)
     elif new_id == 1:
         body = 'Target_1'
     else:
         body = f"Object_{new_id}"
 
-    # Print the received data
-    #print(f"ID: {new_id}, Body: {body}, Position (x,y,z): {current_position}, Orientation (x,y,z,r): {current_orientation}")
-
+    
     # Prepare data to be written to the file
-    data[body] = {
+    data.update({body: {
             "position": current_position,
             "orientation": current_orientation
-    }
-
-    # Append to a JSON file
-    # file_path = "C:/Users/20183464/OneDrive - TU Eindhoven/School/Master Thesis/Scripts/Experiment Robot assisted cleanup 2_scripts_14-07-2023/scripts/objects_data.json"
-    
-    # Check if file exists; if so, load existing data to update it
-    # if os.path.exists(file_path):
-    #     with open(file_path, "r") as file:
-    #         try:
-    #             data = json.load(file)
-    #         except json.JSONDecodeError:
-    #             data = {}
-    # else:
-    #     data = {}
-
-    # Update the data with the new entry
-    #data.update(data_entry)
-
-    # Write updated data back to the file
-    # with open(file_path, "w") as file:
-    #     json.dump(data, file, indent=4)
-
-    # while True:
-    #     # Simulate reading or generating new rigid body data
-    #     data = {
-    #         "Pepper": {
-    #             "position": [random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)],
-    #             "orientation": [random.uniform(0, 1), random.uniform(0, 1), random.uniform(0, 1)]
-    #         },
-    #         "Target": {
-    #             "position": [random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)],
-    #             "orientation": [random.uniform(0, 1), random.uniform(0, 1), random.uniform(0, 1)]
-    #         }
-    #     }
-        
-    # Convert data to JSON and send it to all connected clients
-    # server.send_message_to_all(json.dumps(data)) ## DIT WEGHALEN!! GEBRUIK EEN GLOBAL DIE JE EENS IN DE ZOVEEL TIJD UITLEEST IPV CONSTANT
-    #print("Data sent:", data['Pepper']['orientation'][1])
-        
-    # time.sleep(1)  # Control update frequency
-
-    # print(f"Data for {body} written to \'.\{file_path[-17:]}\'")
-    #time.sleep(0.511111111111111111111)
-
-    # if is_recording:
-    #     the_time = time.time() - start_time
-    # #    file = open(file_name,'a')
-    #     file.write(str(the_time)+'\t'+str(position[0])+'\t'+str(position[1])+'\t'+str(position[2])+'\t'+str(rotation[0])+'\t'+str(rotation[1])+'\t'+str(rotation[2])+'\n')
-    # #    file.close()
-    # pass
+    }})
+    # time.sleep(0.1) ## Putting a sleep here seems to break the connection to the server
 
 def print_configuration(natnet_client):
     #print("Connection Configuration:")
@@ -282,10 +219,6 @@ def init_tracker():
         finally:
             print("exiting")
 
-            
-    print_configuration(streaming_client)
-    print("\n")
-    print_commands(streaming_client.can_change_bitstream_version())
 
     tmpCommands=["TimelinePlay",
                 "TimelineStop",
@@ -338,24 +271,18 @@ if __name__=="__main__":
     server_thread = threading.Thread(target=start_new_server)
     server_thread.start()
 
-    # print_configuration(s_client)
-    # print("\n")
-    # print_commands(s_client.can_change_bitstream_version())
-    
-    #start_recording('testopti.txt')
-    # time.sleep(3)
-    # stop_recording()
-
     time.sleep(5)
     do_command('LiveMode')
         
-    # print(f"ID: 2 = Glove\nID: 5 = Pepper") 
     try:
         # count=10000
         while True:
             ws_server.send_message_to_all(json.dumps(data))
+            time.sleep(0.5)
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        print(f"An error occurred: {e}")
     finally:
         is_looping = False
         is_running = False
