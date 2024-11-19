@@ -45,6 +45,7 @@ def receive_rigid_body_frame(new_id, position, rotation):
     current_position = position
     current_orientation = rotation
 
+    # These IDs can be found in Motive
     if new_id == 2:
         body = 'Glove'
     elif new_id == 5:
