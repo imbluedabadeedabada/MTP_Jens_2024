@@ -32,7 +32,6 @@ def on_message(ws, message):
     try:
         data = json.loads(message)
         live_data.update(data)
-##        print("Updated data:", live_data)
     except json.JSONDecodeError as e:
         print("Failed to decode JSON message:", e)
 
@@ -52,31 +51,10 @@ def start_websocket_client():
     ws.on_open = on_open
     ws.run_forever()
 
-def read_rigid_body_data(file_path):
-    try:
-        with open(file_path, "r") as file:
-            data = json.load(file)
-    except (IOError, ValueError) as e:
-        print("Error reading file:", e)
-        return None
-
-    # Convert the data into a dictionary of dictionaries format
-    # Displaying the content
-##    for object_id, attributes in data.items():
-##        print("Object ID:", object_id)
-##        print("Position (x,y,z):", attributes.get("position")[0])
-##        print("Orientation (x,y,z):", attributes.get("orientation")[1])
-##        print()
-    return data
-
-def normalise(vector):
-    mag = math.sqrt(sum(i**2 for i in vector))
-    return [i/mag for i in vector]
-
 def clip(velocity):
-    if velocity>1:
+    if velocity > 1:
         velocity = 1.0
-    elif velocity<-1:
+    elif velocity < -1:
         velocity = -1.0
     return velocity
 
@@ -84,76 +62,74 @@ def clip(velocity):
 def check_target_orientation(pepper, target):
     # Calculate position vector and target angle
     direction_to_target = [target[0] - pepper[u'position'][0], 0, target[2] - pepper[u'position'][2]]
-    target_angle = math.atan2(direction_to_target[2], direction_to_target[0])
+    target_angle = math.atan2(direction_to_target[0], direction_to_target[2])
+    
+    # Extract yaw (rotation around vertical/Y-axis) from quaternion
+    qx, qy, qz, qw = pepper[u'orientation']
+    yaw = math.atan2(2*(qw*qy + qx*qz), 1 - 2*(qy**2 + qz**2))
+    turn_rate = target_angle - yaw
 
-    turn_rate = target_angle - pepper[u'orientation'][1]
-##    print("dtt: ", direction_to_target, ", angle: ", target_angle)
-    # Normalise to -2pi<x<2pi range
-    while turn_rate > math.pi:
-        turn_rate -= 2 * math.pi
-    while turn_rate < -math.pi:
-        turn_rate += 2 * math.pi
+    # Normalise to -pi<x<pi interval
+    turn_rate = (turn_rate + math.pi) % (2 * math.pi) - math.pi
     return turn_rate/(math.pi)
         
 def check_target_distance(pepper, target):
-    return math.sqrt( (pepper[u'position'][0] - target[0])**2 + (pepper[u'position'][2] - target[2])**2 )
+    distance = math.sqrt((pepper[u'position'][0] - target[0])**2 + (pepper[u'position'][2] - target[2])**2)
+    return np.abs(distance)
     
-
 def pepper_to_target(target):
     global live_data
 
-    sleep_time = 0.3
-    velocity = 0
-    turn_rate = 0
+    sleep_time = 0.1
 
-    print('turning')
-    done_turning = False
-    while not done_turning:
-        #print(live_data)
-        if live_data!={}:
+    print("Moving to target")
+    moving = True
+    while moving:
+        if live_data[u'Pepper']:
             pepper_data = live_data[u'Pepper']
-            target_data = [0,0,0]
-            turn_rate = check_target_orientation(pepper_data, target_data)
-            if np.abs(turn_rate) > 0.1:
-                time.sleep(sleep_time)
+            
+            # Check target orientation and distance
+            turn_rate = check_target_orientation(pepper_data, target)
+            dist = check_target_distance(pepper_data, target)
+            
+            # Adjust forward velocity based on distance
+            if dist > 0.5:  # Minimum distance threshold
+                velocity = 1
+            elif 0.5 > dist > 0.1:
+                velocity = clip(0.7 * dist)
             else:
-                done_turning = True
-                turn_rate = 0
-                
-##        print("Turn rate: " + str(turn_rate))
-        Nao.Move(velocity,0,turn_rate)
-    
-    print('driving')
-    done_moving = False
-    dist = 0
-    while not done_moving:
-        if live_data!={}:
-            pepper_data = live_data[u'Pepper']
-            target_data = [0, 0, 0]
-            dist = check_target_distance(pepper_data, target_data)
-            if check_target_distance(pepper_data, target_data) > 0:
-                print("Distance: " +  str(dist))
-                velocity = 0.3 * dist
-                if velocity < 0.5:
-                    velocity = 0.5
-                time.sleep(sleep_time)
-            else:
-                done_moving = True
                 velocity = 0
-        Nao.Move(velocity,0,turn_rate)
-        
-##            bodies = read_rigid_body_data(file_path)
-##            pepper = bodies[u'Pepper']
-##            target = bodies[u'Glove']
-##            time.sleep(0.5)
+            
+            # Check if both distance and angle are within thresholds
+            if dist <= 0.1 and np.abs(turn_rate) < 0.1:
+                moving = False
+                velocity = 0
+                turn_rate = 0
+                print("Target reached!")
 
-##    else:
-##        if velocity > 0:
-##            velocity -= 0.1
-##        else:
-##            velocity = 0
+            # Debugging information
+            else:
+                print("Distance:"+str(dist)+", Turn rate: "+str(turn_rate)+", Velocity: "+str(velocity))
+            
 
+            # Send combined movement commands
+            Nao.Move(velocity, 0, turn_rate)
+            
+            # Take some time to allow processing of new data
+            time.sleep(sleep_time)
 
+def set_pepper_heading(target):
+    global live_data
+    
+    heading_correct = False
+    while not heading_correct:
+        target_angle = check_target_orientation(live_data[u'Pepper'], target)
+        if target_angle > 0.1:
+            Nao.Move(0,0,target_angle)
+        else:
+            Nao.Move(0,0,0)
+            print("Heading correct.")
+            heading_correct = True
 
 if __name__ == "__main__":
     # Run the WebSocket client in a separate thread to keep receiving updates
@@ -161,7 +137,6 @@ if __name__ == "__main__":
     client_thread.start()
     
     Nao.InitPose()
-##    file_path = "C:/Users/20183464/OneDrive - TU Eindhoven/School/Master Thesis/Scripts/Experiment Robot assisted cleanup 2_scripts_14-07-2023/scripts/objects_data.json"
 
     # Turn off autonomous life features 
     amp=Nao.naoqi.ALProxy('ALAutonomousMoves',IP,PORT)
@@ -171,29 +146,91 @@ if __name__ == "__main__":
     Nao.motionProxy.setBreathEnabled("Body",False)
     Nao.motionProxy.setIdlePostureEnabled("Body",False)
 
-    is_looping = True
-    loop_count = 0
-    loop_max = 10
+    # Create dictionary containing all targets
+        # Mind your coordinate system!
+    inter_dist = 0.5
+    targets = {'start': [0,0,-3], 'mid': [0,0,0], 'far_left': [2*inter_dist, 0, 0], 'mid_left': [inter_dist, 0, 0], 'mid_right': [-inter_dist, 0, 0], 'far_right': [-2*inter_dist, 0,0]}
+    heading_dir = [0,0,inter_dist]
 
-##    robot.say("Thank you for participating in my experiment. I hope we can have lots of fun!")
-##    pepper_to_target(file_path)
-##    while is_looping:
-##        bodies = read_rigid_body_data(file_path)
-##        pepper = bodies[u'Pepper']
-##        target = bodies[u'Target_1']
-##        loop_count += 1
-##        if loop_count == loop_max:
-##            is_looping = False
-##        
-# Main loop to access live data as it updates
+    # QoL/control implementation for experimenter
+    trials_done = []
+    full_reps = 0
+
+    # Main
     try:
-        while True:
-            pepper_to_target(u'Glove')
-                # Add more processing or logic as needed with the live data
-##            time.sleep(0.01)  # Adjust frequency as needed
+##        robot.say("Thank you for participating in my experiment. I hope we can have lots of fun!")
+
+        # Take sleeptime to make sure everything is setup
+        time.sleep(1)
+
+        # Ask for commands to give to Pepper until the script can be quit
+        cmd = raw_input("Command: ")
+        while cmd != 'q':
+
+            # Link all commands to a target location    
+            if cmd == 'g':
+                pepper_to_target(live_data[u'Glove'][u'position'])
+
+            elif cmd == 's':
+                pepper_to_target(targets['start'])
+                set_pepper_heading(heading_dir)
+
+            elif cmd == 'mid':
+                pepper_to_target(targets['mid'])
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
+
+            elif cmd == 'fl':
+                pepper_to_target(targets['far_left'])
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
+
+            elif cmd == 'ml':
+                pepper_to_target(targets['mid_left'])
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
+
+            elif cmd == 'mr':
+                pepper_to_target(targets['mid_right'])
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
+
+            elif cmd == 'fr':
+                pepper_to_target(targets['far_right'])
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
+                
+            else:
+                print("Command not recognised.")
+                print("Options are: s, fl, ml, mid, mr, fr, q")
+
+            # When all targets have been visited, show experimenter
+            if len(trials_done) > 4:
+                trials_done = []
+                full_reps += 1
+                print("All 5 trials done. That makes "+full_reps+" repetitions of the experiment.")
+                
+            cmd = raw_input("Command: ")
+
+                
     except KeyboardInterrupt:
-        print("Exiting script.")
+        pass
     finally:
+        # End the experiment, then close all connections and terminate the script
+##        robot.say("That was all for today. Thank you very much! I really enjoyed our time.")
+##        time.sleep(5)
+##        pepper_to_target(targets['start'])
+        print("Exiting script.")
         ws.close()
         Nao.Crouch()
         
