@@ -52,9 +52,9 @@ def start_websocket_client():
     ws.run_forever()
 
 def clip(velocity):
-    if velocity>1:
+    if velocity > 1:
         velocity = 1.0
-    elif velocity<-1:
+    elif velocity < -1:
         velocity = -1.0
     return velocity
 
@@ -73,9 +73,9 @@ def check_target_orientation(pepper, target):
     turn_rate = (turn_rate + math.pi) % (2 * math.pi) - math.pi
     return turn_rate/(math.pi)
         
-def check_target_distance(pepper, target, buffer=0.05):
+def check_target_distance(pepper, target):
     distance = math.sqrt((pepper[u'position'][0] - target[0])**2 + (pepper[u'position'][2] - target[2])**2)
-    return distance > buffer
+    return np.abs(distance)
     
 def pepper_to_target(target):
     global live_data
@@ -93,10 +93,10 @@ def pepper_to_target(target):
             dist = check_target_distance(pepper_data, target)
             
             # Adjust forward velocity based on distance
-            if dist > 0.1:  # Minimum distance threshold
+            if dist > 0.5:  # Minimum distance threshold
+                velocity = 1
+            elif 0.5 > dist > 0.1:
                 velocity = clip(0.7 * dist)
-                if dist < 0.4:  # Gradual deceleration
-                    velocity *= dist / 0.4
             else:
                 velocity = 0
             
@@ -146,57 +146,90 @@ if __name__ == "__main__":
     Nao.motionProxy.setBreathEnabled("Body",False)
     Nao.motionProxy.setIdlePostureEnabled("Body",False)
 
-    is_looping = True
-    loop_count = 0
-    loop_max = 10
-
+    # Create dictionary containing all targets
+        # Mind your coordinate system!
     inter_dist = 0.5
     targets = {'start': [0,0,-3], 'mid': [0,0,0], 'far_left': [2*inter_dist, 0, 0], 'mid_left': [inter_dist, 0, 0], 'mid_right': [-inter_dist, 0, 0], 'far_right': [-2*inter_dist, 0,0]}
+    heading_dir = [0,0,inter_dist]
 
-##    robot.say("Thank you for participating in my experiment. I hope we can have lots of fun!")
+    # QoL/control implementation for experimenter
+    trials_done = []
+    full_reps = 0
 
-    # Mainloop
+    # Main
     try:
+##        robot.say("Thank you for participating in my experiment. I hope we can have lots of fun!")
+
+        # Take sleeptime to make sure everything is setup
         time.sleep(1)
+
+        # Ask for commands to give to Pepper until the script can be quit
         cmd = raw_input("Command: ")
         while cmd != 'q':
+
+            # Link all commands to a target location    
             if cmd == 'g':
                 pepper_to_target(live_data[u'Glove'][u'position'])
 
             elif cmd == 's':
                 pepper_to_target(targets['start'])
-                set_pepper_heading(targets['mid'])
+                set_pepper_heading(heading_dir)
 
             elif cmd == 'mid':
                 pepper_to_target(targets['mid'])
-                set_pepper_heading(targets['start'])
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
 
             elif cmd == 'fl':
                 pepper_to_target(targets['far_left'])
-                set_pepper_heading(targets['start'])
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
 
             elif cmd == 'ml':
                 pepper_to_target(targets['mid_left'])
-                set_pepper_heading(targets['start'])
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
 
             elif cmd == 'mr':
                 pepper_to_target(targets['mid_right'])
-                set_pepper_heading(targets['start'])
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
 
             elif cmd == 'fr':
                 pepper_to_target(targets['far_right'])
-                set_pepper_heading(targets['start'])
-
+                time.sleep(0.2)
+                
+                set_pepper_heading(heading_dir)
+                trials_done.append(cmd)
+                
             else:
                 print("Command not recognised.")
-                print("Options are: s, fl, ml, mid, mr, fr, q.")
+                print("Options are: s, fl, ml, mid, mr, fr, q")
 
+            # When all targets have been visited, show experimenter
+            if len(trials_done) > 4:
+                trials_done = []
+                full_reps += 1
+                print("All 5 trials done. That makes "+full_reps+" repetitions of the experiment.")
+                
             cmd = raw_input("Command: ")
 
                 
     except KeyboardInterrupt:
         pass
     finally:
+        # End the experiment, then close all connections and terminate the script
+##        robot.say("That was all for today. Thank you very much! I really enjoyed our time.")
+##        time.sleep(5)
+##        pepper_to_target(targets['start'])
         print("Exiting script.")
         ws.close()
         Nao.Crouch()
