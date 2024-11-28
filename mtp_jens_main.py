@@ -3,6 +3,9 @@ import time
 from definitions import *
 import sys
 import numpy as np
+import pygame
+from pygame.locals import *
+import csv
 
 # SIMULATED = True
 # if not SIMULATED:
@@ -25,6 +28,22 @@ Nao.InitProxy(IP)
 
 live_data = {}
 ws = None
+output_file = "mtp_jens_output.csv"
+try:
+    with open(output_file, 'r') as f:
+                pass  # File exists
+        
+except IOError:
+    with open(output_file, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Participant", "Trial", "Distance"])
+
+def record_distance(participant, trial, distance):
+    global output_file
+    
+    with open(output_file, 'a') as f:
+        writer = csv.writer(f)
+        writer.writerow([participant, trial, distance])
 
 def on_message(ws, message):
     global live_data
@@ -106,11 +125,12 @@ def pepper_to_target(target):
                 velocity = 0
                 turn_rate = 0
                 print("Target reached!")
+                break
 
             # Debugging information
             else:
-                print("Distance:"+str(dist)+", Turn rate: "+str(turn_rate)+", Velocity: "+str(velocity))
-            
+                # print("Distance:"+str(dist)+", Turn rate: "+str(turn_rate)+", Velocity: "+str(velocity))
+                pass
 
             # Send combined movement commands
             Nao.Move(velocity, 0, turn_rate)
@@ -122,14 +142,18 @@ def set_pepper_heading(target):
     global live_data
     
     heading_correct = False
+    target_angle = check_target_orientation(live_data[u'Pepper'], target)
+
     while not heading_correct:
-        target_angle = check_target_orientation(live_data[u'Pepper'], target)
-        if target_angle > 0.1:
-            Nao.Move(0,0,target_angle)
+        if np.abs(target_angle) > 0.1:
+            Nao.Move(0,0,0.5*np.sign( target_angle) )
         else:
             Nao.Move(0,0,0)
+            print( target_angle, live_data[u'Pepper'][u'orientation'])
             print("Heading correct.")
             heading_correct = True
+        target_angle = check_target_orientation(live_data[u'Pepper'], target)
+
 
 if __name__ == "__main__":
     # Run the WebSocket client in a separate thread to keep receiving updates
@@ -150,7 +174,7 @@ if __name__ == "__main__":
         # Mind your coordinate system!
     inter_dist = 0.5
     targets = {'start': [0,0,-3], 'mid': [0,0,0], 'far_left': [2*inter_dist, 0, 0], 'mid_left': [inter_dist, 0, 0], 'mid_right': [-inter_dist, 0, 0], 'far_right': [-2*inter_dist, 0,0]}
-    heading_dir = [0,0,inter_dist]
+    heading_dir = [0,0,0.5]
 
     # QoL/control implementation for experimenter
     trials_done = []
@@ -218,7 +242,10 @@ if __name__ == "__main__":
             if len(trials_done) > 4:
                 trials_done = []
                 full_reps += 1
-                print("All 5 trials done. That makes "+full_reps+" repetitions of the experiment.")
+                print("All 5 trials done. That makes "+str(full_reps)+" repetitions of the experiment.")
+
+            else:
+                print("The following trials have been completed so far in this rep: "+str(trials_done))
                 
             cmd = raw_input("Command: ")
 
