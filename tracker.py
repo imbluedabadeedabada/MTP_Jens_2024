@@ -50,7 +50,7 @@ def receive_rigid_body_frame(new_id, position, rotation):
         body = 'Glove'
     elif new_id == 5:
         body = 'Pepper'
-        print("Orientation Pepper: ", current_orientation)
+        # print("Orientation Pepper: ", current_orientation)
         # print("data: ", data)
     elif new_id == 1:
         body = 'Target_1'
